@@ -5,7 +5,7 @@ Program to manipulate chemically important point groups.
 import numpy as np
 import pandas as pd
 
-import character_tables
+import Program.Data.character_tables as character_tables
 
 
 class PointGroup:
@@ -72,7 +72,8 @@ class PointGroup:
         # If the provided list is not the same length as the character table, show a warning and stop the attempted
         # reduction. Proceeding would result, at minimum, in incorrect results.
         if len(representation) != len(self._CHARACTER_TABLE.iloc[0]):
-            print('The reducible representation must have the same number of elements as a row of the character table')
+            print('ReductionError: The reducible representation must have the same '
+                  'number of elements as a row of the character table')
         else:
             try:
                 # Apply the reduction formula:
@@ -99,8 +100,125 @@ class PointGroup:
             representation.
         """
         result = self.reduction(representation)  # Reduce the reducible representation.
-        # Filter out the irreducible representations which don't appear in the reducible reprs, and display nicely:
-        to_print = [f'{i} × {j}' for i, j in
-                    zip(result['number of appearances'], result.index.values) if i != 0]
-        print('  +  '.join(to_print))
+        self.print_result(result)
         return result['number of appearances']
+
+    def convolution(self, arg1: str, arg2: str, *args) -> pd.Series:
+        """
+        Performs a convolution of irreducible representation of the point group, ie. multiplies the chosen rows of the
+        character table by each other. At least two irreducible representations have to be selected, but the total
+        amount is unlimited.
+
+        :param arg1: str, a name of a irreducible representation of the point group
+        :param arg2: str, a name of a irreducible representation of the point group
+        :param args: zero or more strs or an iterable of strs
+            any number of names of irreducible representations of the point group
+
+        :return: pandas.Series, the result of the multiplication, displayed as raw data
+        """
+        try:
+            # Multiply all the chosen row by each other, and rename the Series after the irreducible representations.
+            return self._CHARACTER_TABLE.loc[[arg1, arg2, *args]].product().rename(' × '.join(args))
+        except KeyError:
+            print('The inputted irreducible representations do not exist in this character table. convolution in'
+                  f' this point group can be performed using any two or more of {self._CHARACTER_TABLE.index.values}.')
+
+    def match_representation(self, representation):
+        """
+        Matches the provided representation to the character and determines if it is reducible or not. If it is 
+        reducible, it reduces the representation. If it is irreducible, it determines which irreducible representation
+        it represents.
+        
+        :param representation: The representaion to be matched with the character table. Must be the same length as
+            there are symmetry elements in the character table.
+        :type representation: array-like of ints or floats
+            
+        :return: Either the row of the character table corresponding to the representation or the result of
+            reduction formula.
+        :return type: pandas.Series or pandas.DataFrame
+        """
+        try:
+            # Check if the provided representation matches any of the irreducible representations:
+            if (self._CHARACTER_TABLE[1:] == representation).all(1).any():
+                # Find which rows it matches:
+                temp = (self._CHARACTER_TABLE[1:] == representation).all(1)
+                # Retreive the correct row from the character table:
+                return self._CHARACTER_TABLE.loc[temp[temp == True].index.values[0]]
+            # The provided representation is reducible:
+            else:
+                # Reduce the provided reducible representation:
+                result = self.reduction(representation)
+                return result.astype(int)
+        # If the length of the provided representation is not the same as the number of symmetry elements:
+        except ValueError:
+            print('MatchRepresentationError: The reducible representation must have '
+                  'the same number of elements as a row of the character table')
+
+    def show_matched_representation(self, representation):
+        """
+        Prints the results of matching the provided representation to the character table in a clear, user-friendly
+        format.
+
+        :param representation: array-like of ints or floats
+            The representaion to be matched with the character table. Must be the same length as there are symmetry
+            elements in the character table.
+
+        :return: pandas.Series or pandas.DataFrame
+            Either the row of the character table corresponding to the representation or the result of reduction formula
+        """
+        # Match the representation to the character table:
+        result = self.match_representation(representation)
+        try:
+            self.print_result(result, representation.name)  # Print neatly
+        except:
+            self.print_result(result)
+        return result
+
+    def print_result(self, df, left_hand_side='result'):
+        """
+        Prints the provided result in a user-friendly format.
+
+        :param df: The result to be printed nicely. A DataFrame must have 'number of appearances' column, and Series
+            must have a name.
+        :type df: pandas.DataFrame or pandas.Series
+
+        :param left_hand_side: A description of the result's meaning or a representation of the starting values.
+            eg. A1; A1 × B2
+
+        :return: 'number of appearances' column if df is a DataFrame, df if df is a Series
+        """
+        # If df is a DataFrame, print the result as sum of names of irreducible representations which have nonzero
+        # value in the 'number of appearances' column.
+        if isinstance(df, pd.DataFrame):
+            # Filter out the irreducible representations which don't appear in the reducible reprs, and display nicely:
+            to_print = [f'{i if i != 1 else ""}{j}' for i, j in zip(df['number of appearances'],
+                                                                    df.index.values) if i != 0]
+            print(left_hand_side, '=', '  +  '.join(to_print))
+            return df['number of appearances']
+        # If df is a Series, print its name as the result.
+        elif isinstance(df, pd.Series):
+            print(left_hand_side, '=', df.name)
+            return df
+
+    def convolution_results(self, arg1: str, arg2: str, *args):
+        """
+        Performs a convolution of 2 or more irreducible representations, matches the result to the character table,
+        and prints the result in a user-friendly format.
+
+        :param arg1: Irreducible representation to be convoluted.
+        :type arg1: str
+        :param arg2: Irreducible representation to be convoluted.
+
+        :type arg2: str
+        :param args: Any number of additional irreducible representations to be convoluted.
+
+        :return: The result of matching the convolution result to the character table.
+        """
+        # Obtain convolution results and match these to the character table:
+        result = self.match_representation(self.convolution(arg1, arg2, *args))
+
+        # User-friendly way to show which representations were convoluted:
+        left_hand_side = ' × '.join([arg1, arg2, *args])
+        self.print_result(result, left_hand_side)  # Print nicely
+        return result
+
