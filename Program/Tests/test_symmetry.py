@@ -10,10 +10,11 @@ from Program.Symmetry.symmetry import PointGroup
 
 @pytest.fixture()
 def create_cs():
-    Cs = pd.DataFrame([[1, 1],
-                       [1, 1],
-                       [1, -1]])
+    Cs = pd.DataFrame([[1, 1, None, None],
+                       [1, 1, 'x, y, $R_z$', '$x^2$, $y^2$, $z^2$, xy'],
+                       [1, -1, 'z, $R_x$, $R_y$', 'xz, yz']])
     Cs.index = ['Cs', "A'", "A''"]
+    Cs = Cs.rename(columns={0: 'E', 1: '$σ_h$', 2: 'h', 3: '= 2'})
     return Cs
 
 
@@ -35,36 +36,74 @@ def point_group(c2v):
     return C2v
 
 
-def test_create_using_str_correct(create_cs):
-    Cs = PointGroup('Cs')
-    assert Cs.character_table.equals(create_cs) is True
+def test_create_with_wrong_type_handled(capsys):
+    PointGroup([1, 5])
+    captured = capsys.readouterr()
+    assert 'TypeError: The provided point group' == captured.out[:35]
 
 
-def test_create_using_df_correct(create_cs):
-    Cs = PointGroup(create_cs)
-    assert Cs.character_table.equals(create_cs) is True
+def test_create_from_pandas_correct(create_cs):
+    cs = PointGroup.create_from_pandas('Cs')
+    assert cs.full_character_table.equals(create_cs)
 
 
-def test_create_with_wrong_point_group_handled(capsys):
-    PointGroup('gg')
+def test_create_from_pandas_with_unsupported_point_group_handled(capsys):
+    PointGroup.create_from_pandas('gg')
     captured = capsys.readouterr()
     assert 'The requested point group is not supported, please try again.' == captured.out[:61]
 
 
-def test_create_with_wrong_type_handled(capsys):
-    PointGroup([1, 5])
+def test_create_from_pandas_with_wrong_type_handled(capsys):
+    PointGroup.create_from_pandas([1, 5])
     captured = capsys.readouterr()
     assert 'Incorrect type has been used to create a PointGroup object.' == captured.out[:59]
+
+
+def test_init_with_chtable_with_no_function_columns():
+    expected = pd.DataFrame([[1, 1],
+                             [1, 1],
+                             [1, -1]])
+    expected.index = ['Cs', "A'", "A''"]
+    expected = expected.rename(columns={0: 'E', 1: '$σ_h$'})
+    cs = PointGroup(expected)
+    assert cs.full_character_table.equals(expected)
+    assert cs.character_table.equals(expected)
+
+
+def test_init_with_chtable_with_one_function_column():
+    expected = pd.DataFrame([[1, 1, None],
+                             [1, 1, 'x, y'],
+                             [1, -1, 'z']])
+    expected.index = ['Cs', "A'", "A''"]
+    expected = expected.rename(columns={0: 'E', 1: '$σ_h$', 2: 'h'})
+    cs = PointGroup(expected)
+    assert cs.full_character_table.equals(expected)
+    assert cs.character_table.equals(expected.drop('h', 1))
+
+
+def test_init_with_chtable_with_text_column_in_the_middle():
+    expected = pd.DataFrame([[1, None, 1],
+                             [1, 'x, y', 1],
+                             [1, 'z', -1]])
+    expected.index = ['Cs', "A'", "A''"]
+    expected = expected.rename(columns={0: 'E', 1: 'h', 2: '$σ_h$'})
+    cs = PointGroup(expected)
+    assert cs.full_character_table.equals(expected)
+    assert cs.character_table.equals(expected.drop('h', 1))
 
 
 def test_repr_as_expected(point_group):
     assert 'PointGroup(C2v)' == repr(point_group)
 
 
-def test_no_overwrite_character_table(c2v):
-    Cs = PointGroup('Cs')
+def test_no_overwrite_character_table(point_group, c2v):
     with pytest.raises(AttributeError):
-        Cs.character_table = c2v
+        point_group.character_table = c2v
+
+
+def test_no_overwrite_full_character_table(point_group, c2v):
+    with pytest.raises(AttributeError):
+        point_group.full_character_table = c2v
 
 
 def test_reduction_correct(point_group):

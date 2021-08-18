@@ -2,10 +2,10 @@
 Program to manipulate chemically important point groups.
 """
 
+import os
+
 import numpy as np
 import pandas as pd
-
-import Program.Data.character_tables as character_tables
 
 
 class PointGroup:
@@ -18,26 +18,55 @@ class PointGroup:
         Creates a PointGroup object either using data describing a point in DataFrame format,
         or by passing the name of a supported point group.
 
-        :param point_group: pandas.DataFrame or str
+        :param point_group: character table as a df, or name of point group, or path to point group
+        :type point_group: pandas.DataFrame or str
         """
         # If a DataFrame is provided, use that data as the working point group:
         if isinstance(point_group, pd.DataFrame):
             print(point_group)
-            self._CHARACTER_TABLE = point_group
+            self._full_character_table = point_group
+            self._assign_working_character_table()
         else:
-            # If a name of a point group is provided, use that to search character_tables for the data:
+            self._load_csv(point_group)
+
+    def _load_csv(self, point_group: str):
+        """
+        Loads data from a csv file to create static variables that hold character table data.
+
+        :param point_group: Either the point group name, or the path to a csv file holding the character table data.
+            Using name works only if the appropriate csv file is in Program/Data/CSV/. This is provided in standard
+            distribution.
+        :type point_group: str
+        """
+        try:
+            path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', f'Data/CSV/{point_group}.csv'))
+            self._full_character_table = pd.read_csv(path, index_col=0, sep=';')
+            self._assign_working_character_table()
+
+        except (FileNotFoundError, OSError):
             try:
-                self._CHARACTER_TABLE = character_tables.character_tables[point_group]
+                self._full_character_table = pd.read_csv(point_group, index_col=0, sep=';')
+                self._assign_working_character_table()
 
-            # If provided name does not exist in character_tables, inform user:
-            except KeyError:
-                print('The requested point group is not supported, please try again. \n'
-                      'The point groups that can be used are the following: ',
-                      character_tables.character_tables.keys())
+            except FileNotFoundError:
+                print(f'FileNotFoundError: Provided csv file could not be found at {path} or at {point_group}')
 
-            # Handle other incorrect inputs:
-            except TypeError:
-                print('Incorrect type has been used to create a PointGroup object.')
+            except ValueError:
+                print(f'TypeError: The provided point group ({point_group}) of type {type(point_group)} cannot be '
+                      'turned into a character table. Please use a pandas.DataFrame or str object to initiate a '
+                      'PointGroup object.')
+
+    def _assign_working_character_table(self):
+        """
+        Creates a variable containing the point group's character table that only contains numerical values. The chief
+        purpose of this function is to remove the columns that contain the information about functions (eg. x, xy, etc),
+        and leave only the pure character table that can be used for calculations.
+
+        However, this function will strip away all columns that contain non-numerical values (eg. strings), so extra
+        care should be taken if a custom point group is used.
+        """
+        self._CHARACTER_TABLE = self._full_character_table.drop(
+            self._full_character_table.loc[:, self._full_character_table.dtypes == object].columns, 1)
 
     def __repr__(self):
         """Show the name of class and the point group used to construct it. For development purposes."""
@@ -48,24 +77,54 @@ class PointGroup:
         return self._CHARACTER_TABLE
 
     @property
+    def full_character_table(self):
+        return self._full_character_table
+
+    @property
     def character_table(self):
         """Show the character table, which is immutable."""
         return self._CHARACTER_TABLE
+
+    @classmethod
+    def create_from_pandas(cls, point_group: str):
+        """
+        Creates an instance of the PointGroup class using the name of the point group. Works only for point groups
+        supported via the pandas DataFrames in the character_tables.py file.
+
+        :param point_group: The name of the point group to be used to create an instance of PointGroup.
+        :type point_group: str
+
+        :return: PointGroup
+        """
+        from Program.Data.character_tables import character_tables
+        # If a name of a point group is provided, use that to search character_tables for the data:
+        try:
+            return cls(character_tables[point_group])
+
+        # If provided name does not exist in character_tables, inform user:
+        except KeyError:
+            print('The requested point group is not supported, please try again. \n'
+                  'The point groups that can be used are the following: ',
+                  character_tables.keys())
+
+        # Handle other incorrect inputs:
+        except TypeError:
+            print('Incorrect type has been used to create a PointGroup object.')
 
     def reduction(self, representation) -> pd.DataFrame:
         """
         Reduces the provided reducible representation into its constituent irreducible representation, showing all
         working. Uses the reduction formula.
 
-        :param representation: iterable of ints or floats
-            The reducible representation to which the reduction formula will be applied.
+        :param representation:The reducible representation to which the reduction formula will be applied.
+        :type representation: iterable of ints or floats
 
-        :return: pandas.DataFrame
-            A table showing the reduction formula being applied to each irreducible representation; ie. each element
-            shows the result of the multiplication of an element of the provided reducible representation by the
+        :return: A table showing the reduction formula being applied to each irreducible representation; ie. each
+            element shows the result of the multiplication of an element of the provided reducible representation by the
             corresponding element in the character table and the number of symmetry elements of the corresponding type.
             The last column shows the number of each irreducible representation in the provided reducible
             representation.
+        :return type: pandas.DataFrame
         """
         representation = np.array(representation)  # Needed for later calculations.
 
@@ -92,12 +151,12 @@ class PointGroup:
         Applies the reduction formula to the provided reducible representation, and prints the constituent irreducible
         representations in a nice format.
 
-        :param representation: iterable of ints or floats
-            The reducible representation to which the reduction formula will be applied.
+        :param representation: The reducible representation to which the reduction formula will be applied.
+        :type representation: iterable of ints or floats
 
-        :return: pandas.Series
-            A pandas Series of the numbers each irreducible representation appears in the provided reducible
+        :return: A pandas Series of the numbers each irreducible representation appears in the provided reducible
             representation.
+        :return type: pandas.Series
         """
         result = self.reduction(representation)  # Reduce the reducible representation.
         self.print_result(result)
@@ -109,10 +168,10 @@ class PointGroup:
         character table by each other. At least two irreducible representations have to be selected, but the total
         amount is unlimited.
 
-        :param arg1: str, a name of a irreducible representation of the point group
-        :param arg2: str, a name of a irreducible representation of the point group
-        :param args: zero or more strs or an iterable of strs
-            any number of names of irreducible representations of the point group
+        :param arg1: = :param arg2: = :param args: any number of names of irreducible representations of the point group
+        :type arg1: str, a name of a irreducible representation of the point group
+        :type arg2: str, a name of a irreducible representation of the point group
+        :type args: zero or more strs or an iterable of strs
 
         :return: pandas.Series, the result of the multiplication, displayed as raw data
         """
@@ -159,12 +218,14 @@ class PointGroup:
         Prints the results of matching the provided representation to the character table in a clear, user-friendly
         format.
 
-        :param representation: array-like of ints or floats
-            The representaion to be matched with the character table. Must be the same length as there are symmetry
-            elements in the character table.
+        :param representation: The representaion to be matched with the character table. Must be the same length as
+            there are symmetry elements in the character table.
+        :type representation: array-like of ints or floats
 
-        :return: pandas.Series or pandas.DataFrame
-            Either the row of the character table corresponding to the representation or the result of reduction formula
+        :return: Either the row of the character table corresponding to the representation or the result of reduction
+            formula.
+        :return type: pandas.Series or pandas.DataFrame
+
         """
         # Match the representation to the character table:
         result = self.match_representation(representation)
@@ -186,6 +247,7 @@ class PointGroup:
             eg. A1; A1 × B2
 
         :return: 'number of appearances' column if df is a DataFrame, df if df is a Series
+        :return type: pandas.DataFrame or pandas.Series
         """
         # If df is a DataFrame, print the result as sum of names of irreducible representations which have nonzero
         # value in the 'number of appearances' column.
