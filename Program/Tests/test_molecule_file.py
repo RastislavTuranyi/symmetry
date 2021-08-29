@@ -1,6 +1,6 @@
 import numpy as np
 
-from Program.Symmetry.molecule import Molecule
+from Program.Symmetry.MolParser import Molecule
 
 
 def test_init_water():
